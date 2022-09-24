@@ -1,8 +1,9 @@
+import { nanoid } from 'nanoid';
 import { useRef, useState, useLayoutEffect } from 'react';
 import rough from 'roughjs';
-import { generateElement } from './helpers/generateElement';
+import { generateElement, getElementAtPosition } from './helpers';
 import useEventListener from './hooks/useEventListener';
-import { Drawable, ElementType } from './types';
+import { DrawnElement, ElementType } from './types';
 
 interface Props {
   width?: number;
@@ -11,18 +12,13 @@ interface Props {
 
 const App: React.FC<Props> = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [elementType, setElementType] = useState<ElementType>('line');
+  const [tool, setTool] = useState<ElementType>('line');
 
-  const [elements, setElements] = useState<
-    {
-      x1: number;
-      y1: number;
-      x2: number;
-      y2: number;
-      roughElement: Drawable;
-    }[]
-  >([]);
-  const [isDrawing, setIsDrawing] = useState(false);
+  const [elements, setElements] = useState<DrawnElement[]>([]);
+  const [action, setAction] = useState<'none' | 'drawing' | 'moving'>('none');
+  const [selectedElement, setSelectedElement] = useState<
+    (DrawnElement & { offsetX: number; offsetY: number }) | null
+  >(null);
 
   useLayoutEffect(() => {
     const canvas = canvasRef.current!;
@@ -37,38 +33,79 @@ const App: React.FC<Props> = () => {
   useEventListener(
     'mousedown',
     event => {
-      setIsDrawing(true);
-
       const { clientX, clientY } = event;
 
-      const element = generateElement(
-        clientX,
-        clientY,
-        clientX,
-        clientY,
-        elementType
-      );
+      if (tool === 'selection') {
+        const foundElement = getElementAtPosition(clientX, clientY, elements);
+        if (foundElement) {
+          setSelectedElement({
+            ...foundElement,
+            offsetX: clientX - foundElement.x1,
+            offsetY: clientY - foundElement.y1,
+          });
+          setAction('moving');
+        }
+      } else {
+        setAction('drawing');
 
-      setElements(prev => prev.concat(element));
+        const element = generateElement(
+          elements.length,
+          clientX,
+          clientY,
+          clientX,
+          clientY,
+          tool
+        );
+
+        setElements(prev => prev.concat(element));
+      }
     },
     canvasRef
   );
 
+  const updateElement = (
+    id: number,
+    x1: number,
+    y1: number,
+    clientX: number,
+    clientY: number,
+    type: 'line' | 'rectangle'
+  ) => {
+    const updatedElement = generateElement(id, x1, y1, clientX, clientY, type);
+
+    const elementsCopy = [...elements];
+    elementsCopy[id] = updatedElement;
+    setElements(elementsCopy);
+  };
+
   useEventListener(
     'mousemove',
     event => {
-      if (!isDrawing) return;
       const { clientX, clientY } = event;
+      if (action === 'drawing' && tool !== 'selection') {
+        const index = elements.length - 1;
+        const { x1, y1 } = elements[index];
+        updateElement(index, x1, y1, clientX, clientY, tool);
+      }
 
-      const index = elements.length - 1;
-      const { x1, y1 } = elements[index];
-      const element = generateElement(x1, y1, clientX, clientY, elementType);
+      if (tool === 'selection') {
+        const canvas = event.target as HTMLCanvasElement;
+        canvas.style.cursor = getElementAtPosition(clientX, clientY, elements)
+          ? 'move'
+          : 'default';
+      }
 
-      setElements(prev => {
-        const copy = [...prev];
-        copy[index] = element;
-        return copy;
-      });
+      if (action === 'moving' && selectedElement) {
+        const { id, x1, y1, x2, y2, type, offsetX, offsetY } = selectedElement;
+
+        const width = x2 - x1;
+        const height = y2 - y1;
+
+        const newX1 = clientX - offsetX;
+        const newY1 = clientY - offsetY;
+
+        updateElement(id, newX1, newY1, newX1 + width, newY1 + height, type);
+      }
     },
     canvasRef
   );
@@ -76,7 +113,8 @@ const App: React.FC<Props> = () => {
   useEventListener(
     'mouseup',
     () => {
-      setIsDrawing(false);
+      setAction('none');
+      setSelectedElement(null);
     },
     canvasRef
   );
@@ -84,22 +122,27 @@ const App: React.FC<Props> = () => {
   return (
     <div>
       <div style={{ position: 'fixed' }}>
-        <input type="radio" id="selection" />
+        <input
+          type="radio"
+          id="selection"
+          onChange={() => setTool('selection')}
+          checked={tool === 'selection'}
+        />
         <label htmlFor="selection">Selection</label>
 
         <input
           type="radio"
           id="line"
-          onChange={() => setElementType('line')}
-          checked={elementType === 'line'}
+          onChange={() => setTool('line')}
+          checked={tool === 'line'}
         />
         <label htmlFor="line">Line</label>
 
         <input
           type="radio"
           id="rectangle"
-          onChange={() => setElementType('rectangle')}
-          checked={elementType === 'rectangle'}
+          onChange={() => setTool('rectangle')}
+          checked={tool === 'rectangle'}
         />
         <label htmlFor="rectangle">Rectangle</label>
 
