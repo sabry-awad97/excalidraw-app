@@ -1,9 +1,20 @@
-import { nanoid } from 'nanoid';
-import { useRef, useState, useLayoutEffect } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import rough from 'roughjs';
-import { generateElement, getElementAtPosition } from './helpers';
+
+import {
+  adjustElementCoords,
+  cursorForPosition,
+  generateElement,
+  getElementAtPosition,
+  resizedCoordinates,
+} from './helpers';
 import useEventListener from './hooks/useEventListener';
-import { DrawnElement, ElementType } from './types';
+import {
+  DrawnElement,
+  ElementPosition,
+  ElementType,
+  SelectedElement,
+} from './types';
 
 interface Props {
   width?: number;
@@ -11,14 +22,14 @@ interface Props {
 }
 
 const App: React.FC<Props> = () => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [tool, setTool] = useState<ElementType>('line');
+  type ActionTypes = 'none' | 'drawing' | 'moving' | 'resizing';
 
+  const [action, setAction] = useState<ActionTypes>('none');
   const [elements, setElements] = useState<DrawnElement[]>([]);
-  const [action, setAction] = useState<'none' | 'drawing' | 'moving'>('none');
-  const [selectedElement, setSelectedElement] = useState<
-    (DrawnElement & { offsetX: number; offsetY: number }) | null
-  >(null);
+  const [selectedElement, setSelectedElement] =
+    useState<SelectedElement | null>(null);
+  const [tool, setTool] = useState<ElementType>('line');
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useLayoutEffect(() => {
     const canvas = canvasRef.current!;
@@ -43,7 +54,12 @@ const App: React.FC<Props> = () => {
             offsetX: clientX - foundElement.x1,
             offsetY: clientY - foundElement.y1,
           });
-          setAction('moving');
+
+          if (foundElement.position === 'inside') {
+            setAction('moving');
+          } else if (foundElement.position != null) {
+            setAction('resizing');
+          }
         }
       } else {
         setAction('drawing');
@@ -58,7 +74,80 @@ const App: React.FC<Props> = () => {
         );
 
         setElements(prev => prev.concat(element));
+        setSelectedElement({
+          ...element,
+          position: null,
+          offsetX: 0,
+          offsetY: 0,
+        });
       }
+    },
+    canvasRef
+  );
+
+  useEventListener(
+    'mousemove',
+    event => {
+      const { clientX, clientY } = event;
+      if (action === 'drawing' && tool !== 'selection') {
+        const index = elements.length - 1;
+        const { x1, y1 } = elements[index];
+        updateElement(index, x1, y1, clientX, clientY, tool);
+      }
+
+      if (tool === 'selection') {
+        const canvas = event.target as HTMLCanvasElement;
+        const element = getElementAtPosition(clientX, clientY, elements);
+        canvas.style.cursor = element?.position
+          ? cursorForPosition(element.position)
+          : 'default';
+      }
+
+      if (selectedElement) {
+        if (action === 'moving') {
+          const { id, x1, y1, x2, y2, type, offsetX, offsetY } =
+            selectedElement;
+
+          const width = x2 - x1;
+          const height = y2 - y1;
+
+          const newX1 = clientX - offsetX;
+          const newY1 = clientY - offsetY;
+
+          updateElement(id, newX1, newY1, newX1 + width, newY1 + height, type);
+        }
+
+        if (action === 'resizing') {
+          const { id, type, position, ...coordinates } = selectedElement;
+
+          if (position) {
+            const { x1, y1, x2, y2 } = resizedCoordinates(
+              clientX,
+              clientY,
+              position as Exclude<ElementPosition, 'inside'>,
+              coordinates
+            );
+
+            updateElement(id, x1, y1, x2, y2, type);
+          }
+        }
+      }
+    },
+    canvasRef
+  );
+
+  useEventListener(
+    'mouseup',
+    () => {
+      const index = selectedElement?.id;
+      if (index && ['drawing', 'resizing'].includes(action)) {
+        const { id, type } = elements[index];
+        const { x1, y1, x2, y2 } = adjustElementCoords(elements[index]);
+        updateElement(id, x1, y1, x2, y2, type);
+      }
+
+      setAction('none');
+      setSelectedElement(null);
     },
     canvasRef
   );
@@ -77,47 +166,6 @@ const App: React.FC<Props> = () => {
     elementsCopy[id] = updatedElement;
     setElements(elementsCopy);
   };
-
-  useEventListener(
-    'mousemove',
-    event => {
-      const { clientX, clientY } = event;
-      if (action === 'drawing' && tool !== 'selection') {
-        const index = elements.length - 1;
-        const { x1, y1 } = elements[index];
-        updateElement(index, x1, y1, clientX, clientY, tool);
-      }
-
-      if (tool === 'selection') {
-        const canvas = event.target as HTMLCanvasElement;
-        canvas.style.cursor = getElementAtPosition(clientX, clientY, elements)
-          ? 'move'
-          : 'default';
-      }
-
-      if (action === 'moving' && selectedElement) {
-        const { id, x1, y1, x2, y2, type, offsetX, offsetY } = selectedElement;
-
-        const width = x2 - x1;
-        const height = y2 - y1;
-
-        const newX1 = clientX - offsetX;
-        const newY1 = clientY - offsetY;
-
-        updateElement(id, newX1, newY1, newX1 + width, newY1 + height, type);
-      }
-    },
-    canvasRef
-  );
-
-  useEventListener(
-    'mouseup',
-    () => {
-      setAction('none');
-      setSelectedElement(null);
-    },
-    canvasRef
-  );
 
   return (
     <div>
