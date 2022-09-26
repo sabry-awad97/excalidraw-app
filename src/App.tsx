@@ -9,12 +9,8 @@ import {
   resizedCoordinates,
 } from './helpers';
 import useEventListener from './hooks/useEventListener';
-import {
-  DrawnElement,
-  ElementPosition,
-  ElementType,
-  SelectedElement,
-} from './types';
+import useHistory from './hooks/useHistory';
+import { ElementPosition, ElementType, SelectedElement } from './types';
 
 interface Props {
   width?: number;
@@ -25,7 +21,7 @@ const App: React.FC<Props> = () => {
   type ActionTypes = 'none' | 'drawing' | 'moving' | 'resizing';
 
   const [action, setAction] = useState<ActionTypes>('none');
-  const [elements, setElements] = useState<DrawnElement[]>([]);
+  const [elements, setElements, undo, redo] = useHistory([]);
   const [selectedElement, setSelectedElement] =
     useState<SelectedElement | null>(null);
   const [tool, setTool] = useState<ElementType>('line');
@@ -41,6 +37,11 @@ const App: React.FC<Props> = () => {
     }
   }, [elements]);
 
+  useEventListener('keydown', event => {
+    const { key, ctrlKey, shiftKey } = event;
+    ctrlKey && (key === 'z' ? undo() : shiftKey && key === 'Z' ? redo() : null);
+  });
+
   useEventListener(
     'mousedown',
     event => {
@@ -54,6 +55,8 @@ const App: React.FC<Props> = () => {
             offsetX: clientX - foundElement.x1,
             offsetY: clientY - foundElement.y1,
           });
+
+          setElements(prev => prev);
 
           if (foundElement.position === 'inside') {
             setAction('moving');
@@ -164,7 +167,7 @@ const App: React.FC<Props> = () => {
 
     const elementsCopy = [...elements];
     elementsCopy[id] = updatedElement;
-    setElements(elementsCopy);
+    setElements(elementsCopy, true);
   };
 
   return (
@@ -200,8 +203,8 @@ const App: React.FC<Props> = () => {
         <label htmlFor="text">Text</label>
       </div>
       <div style={{ position: 'fixed', bottom: 0, padding: 10 }}>
-        <button>Undo</button>
-        <button>Redo</button>
+        <button onClick={() => undo()}>Undo</button>
+        <button onClick={() => redo()}>Redo</button>
       </div>
       <canvas
         ref={canvasRef}
