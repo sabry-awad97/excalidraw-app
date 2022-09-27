@@ -1,9 +1,9 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { DrawnElement } from '../types';
+import { Line } from '../types';
 
 const initialState = {
   isDrawing: false,
-  drawnElements: [] as DrawnElement[],
+  drawnElements: [] as Line[],
 };
 
 const slice = createSlice({
@@ -13,7 +13,7 @@ const slice = createSlice({
     setIsDrawing: (state, action: PayloadAction<boolean>) => {
       state.isDrawing = action.payload;
     },
-    updateDrawnElements: (state, action: PayloadAction<DrawnElement[]>) => {
+    updateDrawnElements: (state, action: PayloadAction<Line[]>) => {
       state.drawnElements = action.payload;
     },
   },
